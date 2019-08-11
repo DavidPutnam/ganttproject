@@ -21,6 +21,7 @@ package net.sourceforge.ganttproject.document;
 import biz.ganttproject.core.calendar.GPCalendarCalc;
 import biz.ganttproject.core.option.ListOption;
 import biz.ganttproject.core.table.ColumnList;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import net.sourceforge.ganttproject.IGanttProject;
 import net.sourceforge.ganttproject.gui.GPColorChooser;
@@ -64,8 +65,8 @@ import java.util.Set;
 /**
  * @author bard
  */
-class ProxyDocument implements Document {
-  private final Document myPhysicalDocument;
+public class ProxyDocument implements Document {
+  private Document myPhysicalDocument;
 
   private IGanttProject myProject;
 
@@ -90,6 +91,14 @@ class ProxyDocument implements Document {
     myCreator = creator;
     myTaskVisibleFields = taskVisibleFields;
     myResourceVisibleFields = resourceVisibleFields;
+  }
+
+  public Document getRealDocument() {
+    return myPhysicalDocument;
+  }
+  @Override
+  public void setMirror(Document mirrorDocument) {
+    myPhysicalDocument = Preconditions.checkNotNull(mirrorDocument);
   }
 
   @Override

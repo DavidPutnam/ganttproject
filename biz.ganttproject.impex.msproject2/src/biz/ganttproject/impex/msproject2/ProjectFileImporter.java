@@ -28,11 +28,11 @@ import biz.ganttproject.core.time.CalendarFactory;
 import biz.ganttproject.core.time.TimeDuration;
 import biz.ganttproject.core.time.impl.GPTimeUnitStack;
 import biz.ganttproject.core.time.impl.GregorianTimeUnitStack;
-import com.beust.jcommander.internal.Maps;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import net.sf.mpxj.Day;
 import net.sf.mpxj.Duration;
 import net.sf.mpxj.FieldType;
@@ -680,36 +680,41 @@ class ProjectFileImporter {
   }
 
   private void importDependencies(ProjectFile pf, Map<Integer, GanttTask> foreignId2nativeTask) {
-    for (Task t : pf.getAllTasks()) {
-      if (t.getPredecessors() == null) {
-        continue;
-      }
-      for (Relation r : t.getPredecessors()) {
-        GanttTask dependant = foreignId2nativeTask.get(foreignId(r.getSourceTask()));
-        GanttTask dependee = foreignId2nativeTask.get(foreignId(r.getTargetTask()));
-        if (dependant == null) {
-          myErrors.add(Pair.create(Level.SEVERE, String.format(
-              "Failed to import relation=%s because source task=%s was not found", r, foreignId(r.getSourceTask()))));
+    getTaskManager().getAlgorithmCollection().getScheduler().setEnabled(false);
+    try {
+      for (Task t : pf.getAllTasks()) {
+        if (t.getPredecessors() == null) {
           continue;
         }
-        if (dependee == null) {
-          myErrors.add(Pair.create(Level.SEVERE, String.format(
-              "Failed to import relation=%s because target task=%s", t, foreignId(r.getTargetTask()))));
-          continue;
-        }
-        try {
-          TaskDependency dependency = getTaskManager().getDependencyCollection().createDependency(dependant, dependee);
-          dependency.setConstraint(convertConstraint(r));
-          if (r.getLag().getDuration() != 0.0) {
-            // TODO(dbarashev): get rid of days
-            dependency.setDifference((int) r.getLag().convertUnits(TimeUnit.DAYS, pf.getProjectProperties()).getDuration());
+        for (Relation r : t.getPredecessors()) {
+          GanttTask dependant = foreignId2nativeTask.get(foreignId(r.getSourceTask()));
+          GanttTask dependee = foreignId2nativeTask.get(foreignId(r.getTargetTask()));
+          if (dependant == null) {
+            myErrors.add(Pair.create(Level.SEVERE, String.format(
+                "Failed to import relation=%s because source task=%s was not found", r, foreignId(r.getSourceTask()))));
+            continue;
           }
-          dependency.setHardness(TaskDependency.Hardness.parse(getTaskManager().getDependencyHardnessOption().getValue()));
-        } catch (TaskDependencyException e) {
-          GPLogger.getLogger("MSProject").log(Level.SEVERE, "Failed to import relation=" + r, e);
-          myErrors.add(Pair.create(Level.SEVERE, String.format("Failed to import relation=%s: %s", r, e.getMessage())));
+          if (dependee == null) {
+            myErrors.add(Pair.create(Level.SEVERE, String.format(
+                "Failed to import relation=%s because target task=%s", t, foreignId(r.getTargetTask()))));
+            continue;
+          }
+          try {
+            TaskDependency dependency = getTaskManager().getDependencyCollection().createDependency(dependant, dependee);
+            dependency.setConstraint(convertConstraint(r));
+            if (r.getLag().getDuration() != 0.0) {
+              // TODO(dbarashev): get rid of days
+              dependency.setDifference((int) r.getLag().convertUnits(TimeUnit.DAYS, pf.getProjectProperties()).getDuration());
+            }
+            dependency.setHardness(TaskDependency.Hardness.parse(getTaskManager().getDependencyHardnessOption().getValue()));
+          } catch (TaskDependencyException e) {
+            GPLogger.getLogger("MSProject").log(Level.SEVERE, "Failed to import relation=" + r, e);
+            myErrors.add(Pair.create(Level.SEVERE, String.format("Failed to import relation=%s: %s", r, e.getMessage())));
+          }
         }
       }
+    } finally {
+      getTaskManager().getAlgorithmCollection().getScheduler().setEnabled(true);
     }
   }
 

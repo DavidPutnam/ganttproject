@@ -18,29 +18,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 package net.sourceforge.ganttproject.client;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.MalformedURLException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-
-import net.sourceforge.ganttproject.GPLogger;
-import net.sourceforge.ganttproject.GPVersion;
-import net.sourceforge.ganttproject.gui.NotificationChannel;
-import net.sourceforge.ganttproject.gui.NotificationItem;
-import net.sourceforge.ganttproject.gui.NotificationManager;
-import net.sourceforge.ganttproject.gui.UIFacade;
-import net.sourceforge.ganttproject.gui.update.UpdateDialog;
-import net.sourceforge.ganttproject.language.GanttLanguage;
-
-import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-
 import biz.ganttproject.core.option.ChangeValueEvent;
 import biz.ganttproject.core.option.ChangeValueListener;
 import biz.ganttproject.core.option.DateOption;
@@ -49,6 +26,28 @@ import biz.ganttproject.core.option.DefaultDateOption;
 import biz.ganttproject.core.option.DefaultEnumerationOption;
 import biz.ganttproject.core.option.GPOptionGroup;
 import biz.ganttproject.core.time.impl.GPTimeUnitStack;
+import biz.ganttproject.platform.UpdateKt;
+import net.sourceforge.ganttproject.GPLogger;
+import net.sourceforge.ganttproject.GPVersion;
+import net.sourceforge.ganttproject.gui.NotificationChannel;
+import net.sourceforge.ganttproject.gui.NotificationItem;
+import net.sourceforge.ganttproject.gui.NotificationManager;
+import net.sourceforge.ganttproject.gui.UIFacade;
+import net.sourceforge.ganttproject.language.GanttLanguage;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.eclipse.core.runtime.Platform;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 
 /**
  * Checks GanttProject RSS news feeds once per day
@@ -80,6 +79,7 @@ public class RssFeedChecker {
   private final GPOptionGroup myUiOptionGroup = new GPOptionGroup("rss", myBooleanCheckRssOption);
   private GPTimeUnitStack myTimeUnitStack;
   private static final String RSS_URL = "http://www.ganttproject.biz/my/feed";
+  public static final String UPDATE_URL = "http://dl.ganttproject.biz/updates/ganttproject-3.0.json";
   protected static final int MAX_ATTEMPTS = 10;
   private final RssParser parser = new RssParser();
   private final NotificationItem myRssProposalNotification = new NotificationItem("",
@@ -87,7 +87,7 @@ public class RssFeedChecker {
           GanttLanguage.getInstance().getText("updateRss.question.0"),
           GanttLanguage.getInstance().getText("updateRss.question.1"),
           GanttLanguage.getInstance().getText("updateRss.question.2")),
-          NotificationManager.DEFAULT_HYPERLINK_LISTENER);
+      NotificationManager.DEFAULT_HYPERLINK_LISTENER);
   private String myOptionsVersion;
 
   public RssFeedChecker(GPTimeUnitStack timeUnitStack, UIFacade uiFacade) {
@@ -130,6 +130,15 @@ public class RssFeedChecker {
   }
 
   public void run() {
+    Platform.getUpdater().getUpdateMetadata(UPDATE_URL).thenAccept(updateMetadata -> {
+      if (!updateMetadata.isEmpty()) {
+        UpdateKt.showUpdateDialog(updateMetadata, myUiFacade, false);
+      }
+    }).exceptionally(ex -> {
+      GPLogger.log(ex);
+      return null;
+    });
+
     Runnable command = null;
     CheckOption checkOption = CheckOption.valueOf(myCheckRssOption.getValue());
     if (CheckOption.NO == checkOption) {
@@ -181,16 +190,15 @@ public class RssFeedChecker {
         GPLogger.log("Starting RSS check...");
         HttpClient httpClient = new DefaultHttpClient();
         String url = RSS_URL;
+        HttpGet getRssUrl = new HttpGet(url);
+        getRssUrl.addHeader("User-Agent", "GanttProject " + GPVersion.CURRENT);
         try {
           for (int i = 0; i < MAX_ATTEMPTS; i++) {
-            HttpGet getRssUrl = new HttpGet(url);
-            getRssUrl.addHeader("User-Agent", "GanttProject " + GPVersion.CURRENT);
             HttpResponse result = httpClient.execute(getRssUrl);
-
             switch (result.getStatusLine().getStatusCode()) {
-            case HttpStatus.SC_OK:
-              processResponse(result.getEntity().getContent());
-              return;
+              case HttpStatus.SC_OK:
+                processResponse(result.getEntity().getContent());
+                return;
             }
           }
         } catch (MalformedURLException e) {
@@ -198,6 +206,7 @@ public class RssFeedChecker {
         } catch (IOException e) {
           e.printStackTrace();
         } finally {
+          getRssUrl.releaseConnection();
           httpClient.getConnectionManager().shutdown();
           GPLogger.log("RSS check finished");
         }
@@ -238,10 +247,10 @@ public class RssFeedChecker {
   }
 
   private void createUpdateDialog(String content) {
-    RssUpdate update = parser.parseUpdate(content);
-    if (update != null) {
-      UpdateDialog.show(myUiFacade, update);
-    }
+//    RssUpdate update = parser.parseUpdate(content);
+//    if (update != null) {
+//      UpdateDialog.show(myUiFacade, update);
+//    }
   }
 
   private boolean wasToday(Date date) {

@@ -4,6 +4,26 @@
  */
 package net.sourceforge.ganttproject.document;
 
+import biz.ganttproject.core.option.DefaultStringOption;
+import biz.ganttproject.core.option.GPOption;
+import biz.ganttproject.core.option.GPOptionGroup;
+import biz.ganttproject.core.option.StringOption;
+import biz.ganttproject.core.table.ColumnList;
+import biz.ganttproject.core.time.CalendarFactory;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import net.sourceforge.ganttproject.GPLogger;
+import net.sourceforge.ganttproject.GanttOptions;
+import net.sourceforge.ganttproject.IGanttProject;
+import net.sourceforge.ganttproject.document.webdav.HttpDocument;
+import net.sourceforge.ganttproject.document.webdav.WebDavResource.WebDavException;
+import net.sourceforge.ganttproject.document.webdav.WebDavServerDescriptor;
+import net.sourceforge.ganttproject.document.webdav.WebDavStorageImpl;
+import net.sourceforge.ganttproject.gui.UIFacade;
+import net.sourceforge.ganttproject.gui.options.model.GP1XOptionConverter;
+import net.sourceforge.ganttproject.language.GanttLanguage;
+import net.sourceforge.ganttproject.parser.ParserFactory;
+
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FilenameFilter;
@@ -17,30 +37,8 @@ import java.nio.file.attribute.FileTime;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import net.sourceforge.ganttproject.GPLogger;
-import net.sourceforge.ganttproject.GanttOptions;
-import net.sourceforge.ganttproject.IGanttProject;
-import net.sourceforge.ganttproject.document.webdav.HttpDocument;
-import net.sourceforge.ganttproject.document.webdav.WebDavResource.WebDavException;
-import net.sourceforge.ganttproject.document.webdav.WebDavServerDescriptor;
-import net.sourceforge.ganttproject.document.webdav.WebDavStorageImpl;
-import net.sourceforge.ganttproject.gui.UIFacade;
-import net.sourceforge.ganttproject.gui.options.model.GP1XOptionConverter;
-import net.sourceforge.ganttproject.parser.ParserFactory;
-import biz.ganttproject.core.option.DefaultStringOption;
-import biz.ganttproject.core.option.GPOption;
-import biz.ganttproject.core.option.GPOptionGroup;
-import biz.ganttproject.core.option.StringOption;
-import biz.ganttproject.core.table.ColumnList;
-import biz.ganttproject.core.time.CalendarFactory;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
 /**
  * This is a helper class, to create new instances of Document easily. It
@@ -64,6 +62,7 @@ public class DocumentCreator implements DocumentManager {
   private final Logger myLogger = GPLogger.getLogger(DocumentManager.class);
   /** List containing the Most Recent Used documents */
   private final DocumentsMRU myMRU = new DocumentsMRU(5);
+  private final File myDocumentsFolder;
 
   public DocumentCreator(IGanttProject project, UIFacade uiFacade, ParserFactory parserFactory) {
     myProject = project;
@@ -81,6 +80,21 @@ public class DocumentCreator implements DocumentManager {
         myWebDavStorage.getWebDavReleaseLockOption(),
         myWebDavStorage.getProxyOption()
     });
+    File userHome = new File(System.getProperty("user.home"));
+    File documents = new File(userHome, "Documents");
+    File docsFolder;
+    if (!documents.exists() || !documents.canRead()) {
+      docsFolder = userHome;
+    } else {
+      File ganttProjectDocs = new File(documents, "GanttProject");
+      if (ganttProjectDocs.exists()) {
+        docsFolder =  ganttProjectDocs.canWrite() ? ganttProjectDocs : documents;
+      } else {
+        ganttProjectDocs.mkdirs();
+        docsFolder = ganttProjectDocs.exists() && ganttProjectDocs.canWrite() ? ganttProjectDocs : documents;
+      }
+    }
+    myDocumentsFolder = docsFolder;
   }
 
   /**
@@ -106,8 +120,7 @@ public class DocumentCreator implements DocumentManager {
    * @param pass
    *          password
    * @return an implementation of the interface Document
-   * @throws an
-   *           Exception when the specified protocol is not supported
+   * @throws Exception when the specified protocol is not supported
    */
   private Document createDocument(String path, String user, String pass) {
     assert path != null;
@@ -136,7 +149,12 @@ public class DocumentCreator implements DocumentManager {
       // Generate error for unknown protocol
       throw new RuntimeException("Unknown protocol: " + path.substring(0, path.indexOf("://")));
     }
-    return new FileDocument(new File(path));
+    File file = new File(path);
+    if (file.toPath().isAbsolute()) {
+      return new FileDocument(file);
+    }
+    File relativeFile = new File(myDocumentsFolder, path);
+    return new FileDocument(relativeFile);
   }
 
   @Override
@@ -152,6 +170,23 @@ public class DocumentCreator implements DocumentManager {
     Document proxyDocument = new ProxyDocument(this, physicalDocument, myProject, myUIFacade, getVisibleFields(),
         getResourceVisibleFields(), getParserFactory());
     return proxyDocument;
+  }
+
+  @Override
+  public Document newUntitledDocument() throws IOException {
+    for (int i = 1;; i++) {
+      String filename = GanttLanguage.getInstance().formatText("document.storage.untitledDocument", i);
+      File untitledFile = new File(myDocumentsFolder, filename);
+      if (untitledFile.exists()) {
+        continue;
+      }
+      return getDocument(untitledFile.getAbsolutePath());
+    }
+  }
+
+  @Override
+  public Document newDocument(String path) throws IOException {
+    return createDocument(path);
   }
 
   @Override
